@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ByteChannel;
 import java.nio.file.DirectoryStream;
+import java.nio.file.DirectoryStream.Filter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -100,7 +101,12 @@ public class ExternalMemorySort {
                 writer.close();
             }
         }
-        try (DirectoryStream<Path> files = Files.newDirectoryStream(tmpDir, "chunk-file-*")) {
+        try (DirectoryStream<Path> files = Files.newDirectoryStream(tmpDir, new Filter<Path>() {
+            @Override
+            public boolean accept(Path entry) throws IOException {
+                return entry.getFileName().startsWith("chunk-file-") && Files.isRegularFile(entry);
+            }
+        })) {
             for (Path chunkFile : files) {
                 Path chunkTmpDir = Paths.get(tmpDir.toString(), "sorted-directory-" + chunkFile.getFileName());
                 Files.createDirectories(chunkTmpDir);
