@@ -1,7 +1,7 @@
 Java-Distribution-Sort
 ======================
 
-Java implementation of external memory randomized distribution sort algorithms.
+Java implementation of external memory randomized distribution sort algorithm.
 
 
 Build
