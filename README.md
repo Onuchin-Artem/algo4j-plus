@@ -22,7 +22,9 @@ Launch
 ```
 java -jar target/sort-jar-with-dependencies.jar --help
 ```
- References
- ----------
+ 
+References
+----------
+ 
    * http://www.ittc.ku.edu/~jsv/Papers/Vit.IO_book.pdf 5.1 Sort by Distribution
  
