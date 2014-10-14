@@ -100,7 +100,7 @@ public class ExternalMemorySort {
                 writer.close();
             }
         }
-        try (DirectoryStream<Path> files = Files.newDirectoryStream(tmpDir, "*chunk-file-*")) {
+        try (DirectoryStream<Path> files = Files.newDirectoryStream(tmpDir, "chunk-file-*")) {
             for (Path chunkFile : files) {
                 Path chunkTmpDir = Paths.get(tmpDir.toString(), "sorted-directory-" + chunkFile.getFileName());
                 Files.createDirectories(chunkTmpDir);
