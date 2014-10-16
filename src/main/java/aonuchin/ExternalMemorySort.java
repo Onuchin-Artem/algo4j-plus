@@ -104,10 +104,12 @@ public class ExternalMemorySort {
         try (DirectoryStream<Path> files = Files.newDirectoryStream(tmpDir, new Filter<Path>() {
             @Override
             public boolean accept(Path entry) throws IOException {
-                return entry.getFileName().startsWith("chunk-file-") && Files.isRegularFile(entry);
+                return entry.getFileName().toString().startsWith("chunk-file-") && Files.isReadable(entry);
             }
         })) {
+            int filesNum = 0;
             for (Path chunkFile : files) {
+                filesNum++;
                 Path chunkTmpDir = Paths.get(tmpDir.toString(), "sorted-directory-" + chunkFile.getFileName());
                 Files.createDirectories(chunkTmpDir);
                 Matcher matcher = CHUNK_PATTERN.matcher(chunkFile.getFileName().toString());
@@ -119,6 +121,7 @@ public class ExternalMemorySort {
                         Long.parseLong(matcher.group(1))).sort();
 
             }
+            Preconditions.checkArgument(bufferCount == filesNum);
         }
     }
 
