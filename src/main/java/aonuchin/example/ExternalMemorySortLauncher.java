@@ -1,6 +1,13 @@
-package aonuchin;
+package aonuchin.example;
 
+import aonuchin.Utils;
+import aonuchin.nio.ByteBuffersList;
+import aonuchin.nio.ChannelIterable;
+import aonuchin.nio.ChannelIterable.Builder;
+import aonuchin.nio.LongSerializer;
+import aonuchin.sort.ExternalMemorySort;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Ordering;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.HelpFormatter;
@@ -12,9 +19,9 @@ import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Arrays;
+import java.util.List;
 
-public class Launcher {
+public class ExternalMemorySortLauncher {
     public static void main(String ... a) throws Exception {
         Options options = new Options();
         options.addOption("i", "input", true, "input path. Required");
@@ -56,19 +63,23 @@ public class Launcher {
         Preconditions.checkArgument(Files.exists(inputPath));
         FileUtils.deleteDirectory(tmpDir.toFile());
         Files.createDirectories(tmpDir);
-        ByteBuffer bigBuffer = ByteBuffer.allocateDirect(bigBufferSize);
+        List<ByteBuffer> bigBuffer = Utils.buildBuffersPool(bigBufferSize);
         ByteBuffer readBuffer = ByteBuffer.allocateDirect(bufferSize);
+        LongSerializer serializer = new LongSerializer();
+        ChannelIterable.Builder<Long> channelIterator = new Builder<>(readBuffer, serializer);
+        ByteBuffersList<Long> list = new ByteBuffersList<>(bigBuffer, serializer);
         Files.deleteIfExists(outputPath);
 
         if (arguments.hasOption("t2b")) {
-            FileTransformer.textToBinaryNumbers(inputPath, outputPath, bigBuffer);
+            FileTransformer.textToBinaryNumbers(inputPath, outputPath, readBuffer);
             return;
         }
         if (arguments.hasOption("b2t")) {
-            FileTransformer.binaryNumbersToText(inputPath, outputPath, bigBuffer);
+            FileTransformer.binaryNumbersToText(inputPath, outputPath, readBuffer);
             return;
         }
         System.out.println("Parameters: " + Files.size(inputPath) + " " + bigBufferSize + " " + bufferSize + " " + bufferCount);
+
 
         if (arguments.hasOption("ts")) {
             Path binInputPath = Paths.get(inputPath.toString() + ".bin");
@@ -76,13 +87,14 @@ public class Launcher {
             Path binOutputPath = Paths.get(outputPath.toString() + ".bin");
             Files.deleteIfExists(binOutputPath);
 
-            FileTransformer.textToBinaryNumbers(inputPath, binInputPath, bigBuffer);
-            new ExternalMemorySort(readBuffer, bigBuffer, bufferCount, binInputPath, tmpDir, Long.MIN_VALUE).sort();
-            FileTransformer.directoryToSortedBinaryFile(tmpDir, binOutputPath, bigBuffer);
-            FileTransformer.binaryNumbersToText(binOutputPath, outputPath, bigBuffer);
+            FileTransformer.textToBinaryNumbers(inputPath, binInputPath, readBuffer);
+            ExternalMemorySort<Long> sortByDustribution = new ExternalMemorySort<>(channelIterator, list, bufferCount, tmpDir);
+            sortByDustribution.sort(binInputPath, binOutputPath, Ordering.<Long>natural());
+            FileTransformer.binaryNumbersToText(binOutputPath, outputPath, readBuffer);
             return;
         }
-        new ExternalMemorySort(readBuffer, bigBuffer, bufferCount, inputPath, tmpDir, Long.MIN_VALUE).sort();
-        FileTransformer.directoryToSortedBinaryFile(tmpDir, outputPath, readBuffer);
+        ExternalMemorySort<Long> sort = new ExternalMemorySort<>(channelIterator, list, bufferCount, tmpDir);
+        sort.sort(inputPath, outputPath, Ordering.<Long>natural());
+
     }
 }

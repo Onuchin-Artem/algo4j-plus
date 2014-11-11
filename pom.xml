@@ -30,7 +30,7 @@
                 <configuration>
                     <archive>
                         <manifest>
-                            <mainClass>aonuchin.Launcher</mainClass>
+                            <mainClass>aonuchin.example.ExternalMemorySortLauncher</mainClass>
                         </manifest>
                     </archive>
                     <descriptorRefs>
