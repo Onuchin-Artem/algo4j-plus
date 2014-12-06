@@ -6,15 +6,21 @@ import com.google.common.collect.Ordering;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.SynchronousQueue;
 
 public class MunroPaterson<T> {
     private final Comparator<T> elementComparator;
+    private final OrderedElement<T> infinity = new OrderedElement<T>(true);
     private final Ordering<OrderedElement<T>> comparator = Ordering.from(new Comparator<OrderedElement<T>>() {
         @Override
         public int compare(OrderedElement<T> o1, OrderedElement<T> o2) {
-            int compare = elementComparator.compare(o1.element, o2.element);
-            if (compare != 0) {
-                return compare;
+            int isInfinityCompare = Boolean.compare(o1.isInfinity, o2.isInfinity);
+            if (isInfinityCompare != 0 || o1.isInfinity) {
+                return isInfinityCompare;
+            }
+            int elementCompare = elementComparator.compare(o1.element, o2.element);
+            if (elementCompare != 0) {
+                return elementCompare;
             }
             return Long.compare(o1.order, o2.order);
         }
@@ -25,10 +31,18 @@ public class MunroPaterson<T> {
     public static class OrderedElement<T> {
         private final T element;
         private final long order;
+        private final boolean isInfinity;
 
         public OrderedElement(T element, long order) {
             this.element = element;
             this.order = order;
+            isInfinity = false;
+        }
+
+        public OrderedElement(boolean isInfinity) {
+            element = null;
+            order = Long.MAX_VALUE;
+            this.isInfinity = isInfinity;
         }
 
         public T getElement() {
@@ -37,6 +51,10 @@ public class MunroPaterson<T> {
 
         public long getOrder() {
             return order;
+        }
+
+        public boolean isInfinity() {
+            return isInfinity;
         }
     }
 
@@ -109,8 +127,8 @@ public class MunroPaterson<T> {
     }
 
     public StrictBounds<OrderedElement<T>> findNewBound(Iterable<T> stream, long kOrder, Bounds<OrderedElement<T>> oldBounds) {
-        ArrayList<OrderedElement<T>> current = new ArrayList<>();
-        List<ArrayList<OrderedElement<T>>> levels = new ArrayList<>();
+        ArrayList<OrderedElement<T>> current = new ArrayList<>(levelSize);
+        List<ArrayList<OrderedElement<T>>> levels = new ArrayList<>(levelSize);
         long elementOrder = 0;
         long elementSmallerThanBound = 0;
         OrderedElement<T> mostUpperElement = null;
@@ -130,29 +148,35 @@ public class MunroPaterson<T> {
             }
             current.add(element);
         }
-        if (isLevelFull(current)) {
-            mergeUp(current, levels);
-        }
+        finalizeTree(current, levels);
         Preconditions.checkArgument(kOrder < elementOrder, "K-order is bigger than stream size!");
 
         Preconditions.checkArgument(mostUpperElement != null && mostLowerElement != null);
         Preconditions.checkArgument(kOrder >= elementSmallerThanBound,
                 "DEBUG: element before: " + elementSmallerThanBound + " order: " + kOrder);
         kOrder -= elementSmallerThanBound;
-        if (levels.isEmpty()) {
-            Preconditions.checkArgument(kOrder < current.size(), "DEBUG " + kOrder + " " + current.size());
-            Collections.sort(current, comparator);
-            return new StrictBounds<>(current.get((int) kOrder), current.get((int) kOrder));
+        if (levels.size() == 1) {
+            OrderedElement<T> element = levels.get(0).get((int) kOrder);
+            return new StrictBounds<>(element, element);
         }
 
         List<OrderedElement<T>> upperLevel = levels.get(levels.size() - 1);
 
         assert comparator.isOrdered(upperLevel);
-        int lowerIndex = (int) (kOrder / (2 ^ levels.size()));
-        int upperIndex = (int) (kOrder / (2 ^ levels.size())) + levels.size();
+        int lowerIndex = (int) ((kOrder ) / powerOfTwo(levels.size() - 1));
+        int upperIndex = (int) ((kOrder ) / powerOfTwo(levels.size() - 1)) + levels.size() - 1;
+        OrderedElement<T> lowerElement = lowerIndex >= 0 ?
+                upperLevel.get(lowerIndex) : mostLowerElement;
+        OrderedElement<T> upperElement = upperIndex < levelSize && !upperLevel.get(upperIndex).isInfinity() ?
+                upperLevel.get(upperIndex) : mostUpperElement;
+        System.gc();
         return new StrictBounds<>(
-                kOrder >= (2 ^ levels.size()) ?  upperLevel.get(lowerIndex) : mostLowerElement,
-                upperIndex < levelSize ? upperLevel.get(upperIndex) : mostUpperElement);
+                lowerElement,
+                upperElement);
+    }
+
+    public static long powerOfTwo(int i) {
+        return  1L << i;
     }
 
     private OrderedElement<T> min(OrderedElement<T> mostLowerElement, OrderedElement<T> element) {
@@ -173,13 +197,50 @@ public class MunroPaterson<T> {
         return current.size() == levelSize;
     }
 
+    public void finalizeTree(ArrayList<OrderedElement<T>> current, List<ArrayList<OrderedElement<T>>> levels) {
+        for (int i = current.size(); i < levelSize; i++) {
+            current.add(infinity);
+        }
+        current = mergeUp(current, levels);
+        int i = 0;
+        while (i < levels.size() - 1) {
+            ArrayList<OrderedElement<T>> level = levels.get(i);
+            if (level.isEmpty()) {
+                i++;
+                continue;
+            }
+            for (int j = 0; j < levelSize; j++) {
+                current.add(infinity);
+            }
+            current = mergeUp(current, levels, i);
+            i++;
+        }
+        assert isTreeFull(levels);
+    }
+
+    private boolean isTreeFull(List<ArrayList<OrderedElement<T>>> levels) {
+        if (!isLevelFull(levels.get(levels.size() - 1))) {
+            return false;
+        }
+        for (int i = 0; i < levels.size() - 1; i++) {
+            if (!levels.get(i).isEmpty()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private ArrayList<OrderedElement<T>> mergeUp(ArrayList<OrderedElement<T>> current, List<ArrayList<OrderedElement<T>>> levels) {
+        return mergeUp(current, levels, 0);
+    }
+
+    private ArrayList<OrderedElement<T>> mergeUp(ArrayList<OrderedElement<T>> current, List<ArrayList<OrderedElement<T>>> levels, int levelFrom) {
         ArrayList<OrderedElement<T>> merged = new ArrayList<>(levelSize);
 
-        Preconditions.checkArgument(isLevelFull(current));
+        Preconditions.checkArgument(isLevelFull(current), "DEBUG: " + current.size());
         Preconditions.checkArgument(merged.isEmpty());
         Collections.sort(current, comparator);
-        for (int i = 0; i < levels.size(); i++) {
+        for (int i = levelFrom; i < levels.size(); i++) {
             ArrayList<OrderedElement<T>> level = levels.get(i);
             if (level.isEmpty()) {
                 levels.set(i, current);
@@ -190,6 +251,8 @@ public class MunroPaterson<T> {
                     Iterables.filter(level, new SkippingFilter())), comparator)) {
                 merged.add(mergeElement);
             }
+            current.clear();
+            level.clear();
             ArrayList<OrderedElement<T>> tmp = current;
             current = merged;
             merged = tmp;
@@ -199,6 +262,7 @@ public class MunroPaterson<T> {
 
         }
         levels.add(current);
+        Preconditions.checkArgument(merged.isEmpty());
         return merged;
     }
 

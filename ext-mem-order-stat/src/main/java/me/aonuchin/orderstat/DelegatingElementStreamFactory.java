@@ -5,6 +5,7 @@ import java.util.Iterator;
 
 public class DelegatingElementStreamFactory<T> implements ElementsStream.Factory<T> {
     private final Iterable<T> iterable;
+    private int passesNumber = 0;
 
     public DelegatingElementStreamFactory(Iterable<T> iterable) {
         this.iterable = iterable;
@@ -12,6 +13,7 @@ public class DelegatingElementStreamFactory<T> implements ElementsStream.Factory
 
     @Override
     public ElementsStream<T> resetAndOpenStream() throws IOException {
+        passesNumber++;
         return new ElementsStream<T>() {
             @Override
             public void close() throws IOException {
@@ -22,5 +24,13 @@ public class DelegatingElementStreamFactory<T> implements ElementsStream.Factory
                 return iterable.iterator();
             }
         };
+    }
+
+    public int getPassesNumber() {
+        return passesNumber;
+    }
+
+    public void resetPasses() {
+        passesNumber = 0;
     }
 }
