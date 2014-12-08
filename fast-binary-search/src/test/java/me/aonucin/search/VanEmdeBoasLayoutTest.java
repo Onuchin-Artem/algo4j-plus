@@ -35,26 +35,45 @@ public class VanEmdeBoasLayoutTest {
     }
 
     @Test
-    public void testSetMinusOnePointers() {
+    public void testNegativePointers() {
         layout.setLeftChildPointer(0, -1);
-        layout.setRightChildPointer(0, -1);
+        layout.setRightChildPointer(0, -2);
         assertEquals(-1, layout.getLeftChildPointer(0));
-        assertEquals(-1, layout.getRightChildPointer(0));
+        assertEquals(-2, layout.getRightChildPointer(0));
+
+        layout.setLeftChildPointer(0, -3);
+        layout.setRightChildPointer(0, -2);
+        assertEquals(-3, layout.getLeftChildPointer(0));
+        assertEquals(-2, layout.getRightChildPointer(0));
+
+        layout.setLeftChildPointer(0, -1);
+        layout.setRightChildPointer(0, 5);
+        assertEquals(-1, layout.getLeftChildPointer(0));
+        assertEquals(5, layout.getRightChildPointer(0));
+
+        layout.setLeftChildPointer(0, 5);
+        layout.setRightChildPointer(0, -2);
+        assertEquals(5, layout.getLeftChildPointer(0));
+        assertEquals(-2, layout.getRightChildPointer(0));
+
     }
+    private static final int[] TEST_SIZES = new int[]{1, 5, 15, 100, 10000, 100005};
 
     @Test
-    public void testSetZeroPointers() {
-        layout.setLeftChildPointer(0, 0);
-        layout.setRightChildPointer(0, 0);
-        assertEquals(0, layout.getLeftChildPointer(0));
-        assertEquals(0, layout.getRightChildPointer(0));
-    }
-
-    @Test
-    public void testSetExtremesPointers() {
-        layout.setLeftChildPointer(0, Integer.MAX_VALUE);
-        layout.setRightChildPointer(0, Integer.MAX_VALUE);
-        assertEquals(Integer.MAX_VALUE, layout.getLeftChildPointer(0));
-        assertEquals(Integer.MAX_VALUE, layout.getRightChildPointer(0));
+    public void testContains() {
+        for (int testSize : TEST_SIZES) {
+            long[] elements = new long[testSize];
+            for (int i = 0; i < elements.length; i++) {
+                elements[i] = i - (i % 2);
+            }
+            VanEmdeBoasLayout search = VanEmdeBoasLayout.build(elements);
+            for (int i = 0; i < elements.length; i++) {
+                if (i % 2 == 0) {
+                    assertTrue("" + i, search.contains(i));
+                } else {
+                    assertFalse("" + i, search.contains(i));
+                }
+            }
+        }
     }
 }

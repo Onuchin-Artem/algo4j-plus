@@ -1,14 +1,14 @@
 package me.aonucin.search;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Ordering;
 
 import java.util.*;
 
 /**
-* Created by aonuchin on 25.11.14.
-*/
+ * Created by aonuchin on 25.11.14.
+ */
 public class VanEmdeBoasLayout implements LongStaticSearch {
+
     private long[] layout;
 
     public VanEmdeBoasLayout(int size) {
@@ -26,13 +26,13 @@ public class VanEmdeBoasLayout implements LongStaticSearch {
     public void setLeftChildPointer(int pos, int leftChildPtr) {
         long pointers = layout[2 * pos + 1];
         layout[2 * pos + 1] = ((long) leftChildPtr << 32) |
-                (pointers & 0x00000000FFFFFFFFL);
+                ((int) pointers & 0x00000000FFFFFFFFL);
     }
 
     public void setRightChildPointer(int pos, int rightChildPtr) {
         long pointers = layout[2 * pos + 1];
-        layout[2 * pos + 1] = ((long) rightChildPtr) |
-                (pointers & 0xFFFFFFFF00000000L);
+        layout[2 * pos + 1] = ((long) (int) (pointers >> 32) << 32) |
+                (rightChildPtr & 0x00000000FFFFFFFFL);
     }
 
     public long getValue(int pos) {
@@ -41,12 +41,12 @@ public class VanEmdeBoasLayout implements LongStaticSearch {
 
     public int getLeftChildPointer(int pos) {
         long pointers = layout[2 * pos + 1];
-        return (int) ((pointers & 0xFFFFFFFF00000000L) >> 32);
+        return (int) (pointers >> 32);
     }
 
     public int getRightChildPointer(int pos) {
         long pointers = layout[2 * pos + 1];
-        return (int) (pointers & 0x00000000FFFFFFFFL);
+        return (int) pointers;
     }
 
     @Override
@@ -56,94 +56,255 @@ public class VanEmdeBoasLayout implements LongStaticSearch {
         }
         int currentPos = 0;
         while (currentPos >= 0) {
+            int rightChildPointer = getRightChildPointer(currentPos);
+            int leftChildPointer = getLeftChildPointer(currentPos);
+            if (rightChildPointer == -2) {
+                currentPos = leftChildPointer;
+                continue;
+            }
             long candidate = getValue(currentPos);
             if (candidate == element) {
                 return true;
             }
             if (element < candidate) {
-                currentPos = getLeftChildPointer(currentPos);
+                currentPos = leftChildPointer;
             } else {
-                currentPos = getRightChildPointer(currentPos);
+                currentPos = rightChildPointer;
             }
         }
         return false;
     }
 
-    List<Long> subListView(final int from, final int to) {
-        return new AbstractList<Long>() {
-            @Override
-            public Long get(int index) {
-                Preconditions.checkArgument(0 <= index && index < size());
-                return getValue(from + index);
-            }
 
-            @Override
-            public int size() {
-                return to - from;
+    private static class OrderedElement implements Comparable<OrderedElement> {
+        private long element;
+        private int order;
+        private boolean isInfinity = false;
+
+        public OrderedElement(long element, int order) {
+            this.element = element;
+            this.order = order;
+        }
+
+        public OrderedElement(int order) {
+            this.isInfinity = true;
+            this.order = order;
+        }
+
+        @Override
+        public int compareTo(OrderedElement o) {
+            int infinityCompare = Boolean.compare(isInfinity(), o.isInfinity());
+            if (infinityCompare != 0 || isInfinity()) {
+                return infinityCompare != 0 ? infinityCompare : Integer.compare(order, o.order);
             }
-        };
+            int elementsCompare = Long.compare(element, o.element);
+            return elementsCompare != 0 ? elementsCompare : Integer.compare(order, o.order);
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            OrderedElement that = (OrderedElement) o;
+            return element == that.element && order == that.order && isInfinity == that.isInfinity;
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * (int) (element ^ (element >>> 32)) + order + Boolean.hashCode(isInfinity);
+        }
+
+        public boolean isInfinity() {
+            return isInfinity;
+        }
     }
 
-    public static VanEmdeBoasLayout build(long[] elements, boolean checkInvariants) {
-        VanEmdeBoasLayout layout = new VanEmdeBoasLayout(elements.length);
-        Arrays.sort(elements);
-        layout.setElements(elements);
-        buildLayout(layout, 0, elements.length, layout.getValue(elements.length / 2), new VanEmdeBoasLayout(elements.length), checkInvariants);
+    public static class Builder {
+        List<Long> elements = new ArrayList<>();
+
+        Builder addElement(long element) {
+            elements.add(element);
+            return this;
+        }
+
+        VanEmdeBoasLayout build() {
+            long[] elementsArr = new long[elements.size()];
+            for (int i = 0; i < elementsArr.length; i++) {
+                elementsArr[i] = elements.get(i);
+            }
+            return VanEmdeBoasLayout.build(elementsArr);
+        }
+    }
+    private static class VEBNode {
+        private OrderedElement element;
+        private int leftChildPos;
+        private int rightChildPos;
+
+        public VEBNode(OrderedElement element, int leftChildPos, int rightChildPos) {
+            this.element = element;
+            this.leftChildPos = leftChildPos;
+            this.rightChildPos = rightChildPos;
+        }
+
+        public VEBNode(OrderedElement orderedElement) {
+            this.element = orderedElement;
+        }
+    }
+
+    public static VanEmdeBoasLayout build(long[] elements) {
+        OrderedElement[] bfsLayout = buildBFSLayout(elements);
+        VEBNode[] vebLayout = buildVEBLayout(bfsLayout);
+        VanEmdeBoasLayout vebLayoutLocal = new VanEmdeBoasLayout(vebLayout.length);
+        for (int i = 0; i < vebLayout.length; i++) {
+            VEBNode node = vebLayout[i];
+            vebLayoutLocal.setValue(i, node.element.element);
+            if (node.leftChildPos != 0) {
+                vebLayoutLocal.setLeftChildPointer(i, node.leftChildPos);
+            } else {
+                vebLayoutLocal.setLeftChildPointer(i, -1);
+            }
+            if (node.rightChildPos != 0) {
+                vebLayoutLocal.setRightChildPointer(i, node.rightChildPos);
+            } else {
+                vebLayoutLocal.setRightChildPointer(i, -1);
+            }
+        }
+        return vebLayoutLocal;
+    }
+
+    private static OrderedElement[] buildBFSLayout(long[] elements) {
+        OrderedElement[] sorted = new OrderedElement[roundUpToNextPowerOfTwo(elements.length + 1) - 1];
+        for (int i = 0; i < elements.length; i++) {
+            sorted[i] = new OrderedElement(elements[i], i);
+        }
+        for (int i = elements.length; i < sorted.length; i++) {
+            sorted[i] = new OrderedElement(i);
+        }
+        Arrays.sort(sorted);
+        OrderedElement[] layout = Arrays.copyOf(sorted, sorted.length);
+        if (layout.length == 0) {
+            return layout;
+        }
+        buildBFSLayout(sorted, layout, 0, layout.length, 0);
         return layout;
     }
 
-    public static VanEmdeBoasLayout wrap(long[] elements) {
-        return new VanEmdeBoasLayout(elements);
+    private static void buildBFSLayout(OrderedElement[] sorted, OrderedElement[] layout,
+                                       int from, int to, int layoutPos) {
+        int medianPos = from + (to - from) / 2;
+        layout[layoutPos] = sorted[medianPos];
+        if (from < medianPos) {
+            buildBFSLayout(sorted, layout, from, medianPos, bfsLeftPos(layoutPos));
+        }
+        if (medianPos + 1 < to) {
+            buildBFSLayout(sorted, layout, medianPos + 1, to, bfsRightPos(layoutPos));
+        }
     }
 
-    private static void buildLayout(VanEmdeBoasLayout layout, int from, int to, long root, VanEmdeBoasLayout buffer, boolean checkInvariants) {
-        int length = to - from;
-        if (length == 0) {
+    private static int bfsRightPos(int layoutPos) {
+        return 2 * (layoutPos + 1);
+    }
+
+    private static int bfsLeftPos(int layoutPos) {
+        return 2 * layoutPos + 1;
+    }
+
+    private static int findElementInBFSLayout(OrderedElement[] layout, OrderedElement element) {
+        int i = 0;
+        do {
+            if (layout[i].equals(element)) {
+                return i;
+            }
+            if (element.compareTo(layout[i]) < 0) {
+                i = bfsLeftPos(i);
+            } else {
+                i = bfsRightPos(i);
+            }
+        } while (i < layout.length);
+        throw new IllegalStateException();
+    }
+
+    private static VEBNode[] buildVEBLayout(OrderedElement[] bfsLayout) {
+        VEBNode[] vebLayout = new VEBNode[bfsLayout.length];
+        buildVEBLayout(bfsLayout, vebLayout, 0, LayoutUtil.log2(bfsLayout.length + 1), 0, vebLayout.length);
+        for (int i = 0; i < vebLayout.length; i++) {
+            VEBNode node = vebLayout[i];
+            if (node.element.isInfinity()) {
+                node.rightChildPos = -2;
+            }
+            int bfsPos = findElementInBFSLayout(bfsLayout, node.element);
+            if (bfsLeftPos(bfsPos) < bfsLayout.length) {
+                OrderedElement left = bfsLayout[bfsLeftPos(bfsPos)];
+                findChild(vebLayout, i, left, true);
+            }
+            if (!node.element.isInfinity() && bfsRightPos(bfsPos) < bfsLayout.length) {
+                OrderedElement right = bfsLayout[bfsRightPos(bfsPos)];
+                findChild(vebLayout, i, right, false);
+            }
+
+        }
+        return vebLayout;
+    }
+
+    private static void findChild(VEBNode[] vebLayout, int pos, OrderedElement child, boolean isLeft) {
+        for (int j = pos + 1; j < vebLayout.length; j++) {
+            if (vebLayout[j].element.equals(child)) {
+                if (isLeft) {
+                    vebLayout[pos].leftChildPos = j;
+                } else {
+                    vebLayout[pos].rightChildPos = j;
+                }
+                return;
+            }
+        }
+        throw new IllegalStateException();
+    }
+
+    // 0 1 2 3 4 5 6
+    private static void buildVEBLayout(OrderedElement[] bfsLayout, VEBNode[] vebLayout,
+                                       final int bfsRootPosition, final int treeHeight,
+                                       final int vebFromPos, final int vebToPos) {
+        if (treeHeight == 0) {
             return;
         }
-        if (checkInvariants) {
-            Preconditions.checkArgument(Ordering.natural().isOrdered(layout.subListView(from, to)));
-        }
-        if (length == 1) {
-            if (checkInvariants && from > 0) {
-                checkThatElementHasExactlyOneParent(layout, from);
-            }
-            layout.setLeftChildPointer(from, -1);
-            layout.setRightChildPointer(from, -1);
+        if (treeHeight == 1) {
+            Preconditions.checkArgument(vebToPos - vebFromPos == 1, vebToPos + " " + vebFromPos);
+            vebLayout[vebFromPos] = new VEBNode(bfsLayout[bfsRootPosition]);
             return;
         }
-        layout.copyTo(buffer, from, 0, length);
-        int height = LayoutUtil.log2(length);
-        int topHalfHeight = height / 2;
-    }
-
-    private static int findRootInInOrderLayout(VanEmdeBoasLayout layout, long root, int from, int to) {
-        return -1;
-    }
-
-    private void copyTo(VanEmdeBoasLayout target, int sourceOffset, int targetOffset, int length) {
-        System.arraycopy(layout, sourceOffset * 2, target.layout, targetOffset * 2, length * 2);
-    }
-
-    private static void checkThatElementHasExactlyOneParent(VanEmdeBoasLayout layout, int elementPos) {
-        long element = layout.getValue(elementPos);
-        int parentsNum = 0;
-        for (int i = 0; i < elementPos; i++) {
-            if (layout.getLeftChildPointer(i) == elementPos) {
-                parentsNum++;
-                Preconditions.checkArgument(layout.getValue(i) >= element);
-            }
-            if (layout.getRightChildPointer(i) == elementPos) {
-                parentsNum++;
-                Preconditions.checkArgument(layout.getValue(i) < element);
-            }
+        int topHeight = treeHeight / 2;
+        int bottomHeight = treeHeight - topHeight;
+        int vebTopTreeEnd = vebFromPos + treeSize(topHeight);
+        buildVEBLayout(bfsLayout, vebLayout, bfsRootPosition, topHeight, vebFromPos, vebTopTreeEnd);
+        int bottomLevelStart = bfsRootPosition;
+        for (int i = 0; i < topHeight; i++) {
+            bottomLevelStart = bfsLeftPos(bottomLevelStart);
         }
-        Preconditions.checkArgument(parentsNum == 1);
-    }
-
-    public void setElements(long[] elements) {
-        for (int i = 0; i < elements.length; i++) {
-            setValue(i, elements[i]);
+        int bottomLevelEnd = bottomLevelStart + LayoutUtil.powerOfTwo(topHeight);
+        int i = 0;
+        Preconditions.checkArgument(vebToPos ==  vebTopTreeEnd + LayoutUtil.powerOfTwo(topHeight) * treeSize(bottomHeight));
+        for (int bottomRootPos = bottomLevelStart; bottomRootPos < bottomLevelEnd; bottomRootPos++) {
+            buildVEBLayout(bfsLayout, vebLayout, bottomRootPos, bottomHeight, vebTopTreeEnd + i * treeSize(bottomHeight), vebTopTreeEnd + (i + 1) * treeSize(bottomHeight));
+            i++;
         }
     }
+
+    private static int treeSize(int treeHeight) {
+        return LayoutUtil.powerOfTwo(treeHeight) - 1;
+    }
+
+
+    private static int roundUpToNextPowerOfTwo(int v) {
+        v--;
+        v |= v >> 1;
+        v |= v >> 2;
+        v |= v >> 4;
+        v |= v >> 8;
+        v |= v >> 16;
+        v++;
+        return v;
+    }
+
+
 }

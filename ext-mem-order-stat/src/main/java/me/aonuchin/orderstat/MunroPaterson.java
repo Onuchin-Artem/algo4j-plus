@@ -6,7 +6,6 @@ import com.google.common.collect.Ordering;
 
 import java.io.IOException;
 import java.util.*;
-import java.util.concurrent.SynchronousQueue;
 
 public class MunroPaterson<T> {
     private final Comparator<T> elementComparator;

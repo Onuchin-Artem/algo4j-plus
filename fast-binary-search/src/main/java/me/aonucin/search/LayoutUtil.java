@@ -11,4 +11,8 @@ public class LayoutUtil {
         return 31 - Integer.numberOfLeadingZeros(integer);
     }
 
+    public static int powerOfTwo(int i) {
+        return  1 << i;
+    };
+
 }
